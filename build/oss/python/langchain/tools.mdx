@@ -20,7 +20,7 @@ Some chat models (e.g., [OpenAI](/oss/python/integrations/chat/openai), [Anthrop
 
 The simplest way to create a tool is with the [`@tool`](https://reference.langchain.com/python/langchain/tools/#langchain.tools.tool) decorator. By default, the function's docstring becomes the tool's description that helps the model understand when to use it:
 
-```python wrap
+```python
 from langchain.tools import tool
 
 @tool
@@ -45,7 +45,7 @@ Type hints are **required** as they define the tool's input schema. The docstrin
 
 By default, the tool name comes from the function name. Override it when you need something more descriptive:
 
-```python wrap
+```python
 @tool("web_search")  # Custom name
 def search(query: str) -> str:
     """Search the web for information."""
@@ -58,7 +58,7 @@ print(search.name)  # web_search
 
 Override the auto-generated tool description for clearer model guidance:
 
-```python wrap
+```python
 @tool("calculator", description="Performs arithmetic calculations. Use this for any math problems.")
 def calc(expression: str) -> str:
     """Evaluate mathematical expressions."""
@@ -70,7 +70,7 @@ def calc(expression: str) -> str:
 Define complex inputs with Pydantic models or JSON schemas:
 
 <CodeGroup>
-    ```python wrap Pydantic model
+    ```python Pydantic model
     from pydantic import BaseModel, Field
     from typing import Literal
 
@@ -96,7 +96,7 @@ Define complex inputs with Pydantic models or JSON schemas:
         return result
     ```
 
-    ```python wrap JSON Schema
+    ```python JSON Schema
     weather_schema = {
         "type": "object",
         "properties": {
@@ -127,14 +127,62 @@ Define complex inputs with Pydantic models or JSON schemas:
 
 Tools can access runtime information through the `ToolRuntime` parameter, which provides:
 
-- **State** - Mutable data that flows through execution (messages, counters, custom fields)
+- **State** - Mutable data that flows through execution (e.g., messages, counters, custom fields)
 - **Context** - Immutable configuration like user IDs, session details, or application-specific configuration
 - **Store** - Persistent long-term memory across conversations
 - **Stream Writer** - Stream custom updates as tools execute
-- **Config** - RunnableConfig for the execution
+- **Config** - `RunnableConfig` for the execution
 - **Tool Call ID** - ID of the current tool call
 
-### ToolRuntime
+```mermaid
+graph LR
+    %% Runtime Context
+    subgraph "🔧 Tool Runtime Context"
+        A[Tool Call] --> B[ToolRuntime]
+        B --> C[State Access]
+        B --> D[Context Access]
+        B --> E[Store Access]
+        B --> F[Stream Writer]
+    end
+
+    %% Available Resources
+    subgraph "📊 Available Resources"
+        C --> G[Messages]
+        C --> H[Custom State]
+        D --> I[User ID]
+        D --> J[Session Info]
+        E --> K[Long-term Memory]
+        E --> L[User Preferences]
+    end
+
+    %% Tool Capabilities
+    subgraph "⚡ Enhanced Tool Capabilities"
+        M[Context-Aware Tools]
+        N[Stateful Tools]
+        O[Memory-Enabled Tools]
+        P[Streaming Tools]
+    end
+
+    %% Connections
+    G --> M
+    H --> N
+    I --> M
+    J --> M
+    K --> O
+    L --> O
+    F --> P
+
+    %% Styling
+    classDef runtimeStyle fill:#e3f2fd,stroke:#1976d2
+    classDef resourceStyle fill:#e8f5e8,stroke:#388e3c
+    classDef capabilityStyle fill:#fff3e0,stroke:#f57c00
+
+    class A,B,C,D,E,F runtimeStyle
+    class G,H,I,J,K,L resourceStyle
+    class M,N,O,P capabilityStyle
+```
+
+### `ToolRuntime`
 
 Use `ToolRuntime` to access all runtime information in a single parameter. Simply add `runtime: ToolRuntime` to your tool signature, and it will be automatically injected without being exposed to the LLM.
 
@@ -146,7 +194,7 @@ Use `ToolRuntime` to access all runtime information in a single parameter. Simpl
 
 Tools can access the current graph state using `ToolRuntime`:
 
-```python wrap
+```python
 from langchain.tools import tool, ToolRuntime
 
 # Access the current conversation state
@@ -182,7 +230,7 @@ The `tool_runtime` parameter is hidden from the model. For the example above, th
 
 Use [`Command`](https://reference.langchain.com/python/langgraph/types/#langgraph.types.Command) to update the agent's state or control the graph's execution flow:
 
-```python wrap
+```python
 from langgraph.types import Command
 from langchain.messages import RemoveMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
@@ -216,7 +264,7 @@ Access immutable configuration and contextual data like user IDs, session detail
 
 Tools can access runtime context through `ToolRuntime`:
 
-```python wrap
+```python
 from dataclasses import dataclass
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
@@ -275,7 +323,7 @@ Access persistent data across conversations using the store. The store is access
 
 Tools can access and update the store through `ToolRuntime`:
 
-```python wrap expandable
+```python expandable
 from typing import Any
 from langgraph.store.memory import InMemoryStore
 from langchain.agents import create_agent
@@ -327,7 +375,7 @@ agent.invoke({
 
 Stream custom updates from tools as they execute using `runtime.stream_writer`. This is useful for providing real-time feedback to users about what a tool is doing.
 
-```python wrap
+```python
 from langchain.tools import tool, ToolRuntime
 
 @tool
