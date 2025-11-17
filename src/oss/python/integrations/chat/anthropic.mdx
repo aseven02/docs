@@ -578,14 +578,17 @@ In the [LangSmith trace](https://smith.langchain.com/public/4d0584d8-5f9e-4b91-8
 
 ## Token-efficient tool use
 
-Anthropic supports a (beta) [token-efficient tool use](https://docs.claude.com/en/docs/agents-and-tools/tool-use/token-efficient-tool-use) feature. To use it, specify the relevant beta-headers when instantiating the model.
+Anthropic supports a [token-efficient tool use](https://docs.claude.com/en/docs/agents-and-tools/tool-use/token-efficient-tool-use) feature. It is supported by default on all Claude 4 models.
 
+To use it with Claude 3.7, specify the `token-efficient-tools-2025-02-19` beta-header when instantiating the model, as shown below:
+
+<Accordion title="Enabling token-efficient tool use with Claude 3.7">
 ```python
 from langchain_anthropic import ChatAnthropic
 from langchain.tools import tool
 
 model = ChatAnthropic(
-    model="claude-sonnet-4-5-20250929",
+    model="claude-3-7-sonnet-20250219",
     betas=["token-efficient-tools-2025-02-19"],  # [!code highlight]
 )
 
@@ -607,6 +610,7 @@ print(f"\nTotal tokens: {response.usage_metadata['total_tokens']}")
 
 Total tokens: 408
 ```
+</Accordion>
 
 ## Citations
 
