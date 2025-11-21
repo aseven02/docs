@@ -151,6 +151,154 @@ def routing_function(state: GraphState) -> Literal["node_b","node_c"]:
         return "node_c"
 ```
 
+## Command Selection Issues
+
+### `langgraph up` fails but `langgraph dev` works
+
+This is usually caused by Docker-related issues. Here's how to diagnose:
+
+**Check if Docker is running:**
+```bash
+docker ps
+```
+
+If this fails, Docker isn't running or isn't installed.
+
+**Check for port conflicts:**
+```bash
+# Check if required ports are available
+lsof -i :8123  # API server
+lsof -i :5432  # PostgreSQL
+lsof -i :6379  # Redis
+```
+
+**Solutions:**
+- Install and start Docker Desktop
+- Stop services using conflicting ports
+- Use `langgraph dev` for development (doesn't require Docker)
+- Use `--port` flag to change the API server port: `langgraph up --port 8124`
+
+**Check available resources:**
+
+`langgraph up` requires more RAM and disk space than `langgraph dev` because it runs PostgreSQL and Redis containers.
+
+**Solutions:**
+- Free up system resources
+- Use `langgraph dev` for lightweight testing
+
+### `langgraph dev` works but production deployment fails
+
+This can happen because `langgraph dev` is more permissive than production environments.
+
+**Common causes:**
+- Dependencies not properly specified in `pyproject.toml` or `requirements.txt`
+- Code relies on development-only features
+- Environment variables not configured for production
+- State persistence assumptions (dev uses in-memory storage)
+
+**Solutions:**
+- Test with `langgraph up` before deploying to catch issues early
+- Ensure all dependencies are listed in your package configuration
+- Review [Application Structure](/langsmith/application-structure) guide
+- See the [Local development & testing guide](/langsmith/local-dev-testing) for more details
+
+### Dependencies install with pip but not with uv (or vice versa)
+
+Starting from LangGraph CLI v0.3, `uv` is the default installer. Some dependency configurations work with one but not the other.
+
+**When uv fails:**
+
+Add this to your `langgraph.json`:
+```json
+{
+  "dependencies": ["."],
+  "pip_installer": "pip"
+}
+```
+
+Then rebuild:
+```bash
+langgraph up --recreate
+```
+
+**When pip fails but uv would work:**
+
+Add this to your `langgraph.json`:
+```json
+{
+  "dependencies": ["."],
+  "pip_installer": "uv"
+}
+```
+
+**Common uv issues:**
+- Complex `pyproject.toml` configurations with advanced features
+- Corporate package indexes that aren't configured for uv
+- Custom build systems expecting pip-specific behavior
+
+See the [Dependency installer guide](/langsmith/local-dev-testing#dependency-installer) for more details.
+
+### Graph works in dev but state doesn't persist between restarts
+
+This is expected behavior. `langgraph dev` uses in-memory storage that is cleared on restart.
+
+**Solution:**
+
+Use `langgraph up` for testing with persistent storage:
+```bash
+langgraph up
+```
+
+With `langgraph up`, state is stored in PostgreSQL and persists across restarts.
+
+### Production deployment works but `langgraph up` fails locally
+
+This can happen due to local environment differences.
+
+**Common causes:**
+- Docker not configured properly locally
+- Port conflicts with other local services
+- Network issues (VPN, firewall, proxy)
+- Resource constraints on local machine
+- Different installer configuration (uv vs pip)
+
+**Solutions:**
+- Use `langgraph dev` for local testing
+- Check Docker installation and configuration
+- Review the [Local vs production differences](/langsmith/local-dev-testing#local-vs-production-troubleshooting) section
+- Ensure your `pip_installer` setting matches production
+
+### Docker build fails with "failed to solve" errors
+
+This usually indicates issues with your Dockerfile or dependency installation.
+
+**Check your dependency configuration:**
+```bash
+# Verify your langgraph.json points to the right location
+cat langgraph.json
+```
+
+**Try rebuilding from scratch:**
+```bash
+langgraph up --recreate --no-pull
+```
+
+**Switch installer if needed:**
+
+Add to `langgraph.json`:
+```json
+{
+  "pip_installer": "pip"
+}
+```
+
+**Check for missing files:**
+
+Ensure your package configuration files exist:
+- `pyproject.toml` or
+- `setup.py` or
+- `requirements.txt`
+
 ## Experiment troubleshooting in Studio
 
 ### **Run experiment** button is disabled
