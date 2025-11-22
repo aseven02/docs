@@ -229,7 +229,7 @@ The agent will return a @[`ToolMessage`] with the custom error message when a to
 Agents follow the ReAct ("Reasoning + Acting") pattern, alternating between brief reasoning steps with targeted tool calls and feeding the resulting observations into subsequent decisions until they can deliver a final answer.
 
 <Accordion title="Example of ReAct loop">
-Prompt: Identify the current most popular wireless headphones and verify availability.
+**Prompt:** Identify the current most popular wireless headphones and verify availability.
 
 ```
 ================================ Human Message =================================
@@ -433,8 +433,14 @@ const CustomAgentState = createAgent({
 ```
 
 
+<Note>
+    Defining custom state via middleware is preferred over defining it via @[`state_schema`] on @[`create_agent`] because it allows you to keep state extensions conceptually scoped to the relevant middleware and tools.
+
+    @[`state_schema`] is still supported for backwards compatibility on @[`create_agent`].
+</Note>
+
 <Tip>
-To learn more about memory, see [Memory](/oss/javascript/concepts/memory). For information on implementing long-term memory that persists across sessions, see [Long-term memory](/oss/javascript/langchain/long-term-memory).
+    To learn more about memory, see [Memory](/oss/javascript/concepts/memory). For information on implementing long-term memory that persists across sessions, see [Long-term memory](/oss/javascript/langchain/long-term-memory).
 </Tip>
 
 ### Streaming
@@ -480,7 +486,7 @@ For more details on streaming, see [Streaming](/oss/javascript/langchain/streami
 - Implement dynamic model selection based on state or context
 - Add custom logging, monitoring, or analytics
 
-Middleware integrates seamlessly into the agent's execution graph, allowing you to intercept and modify data flow at key points without changing the core agent logic.
+Middleware integrates seamlessly into the agent's execution, allowing you to intercept and modify data flow at key points without changing the core agent logic.
 
 
 
