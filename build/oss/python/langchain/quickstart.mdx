@@ -163,6 +163,8 @@ Let's walk through each step:
         Now assemble your agent with all the components and run it!
 
         ```python
+        from langchain.agents.structured_output import ToolStrategy
+
         agent = create_agent(
             model=model,
             system_prompt=SYSTEM_PROMPT,

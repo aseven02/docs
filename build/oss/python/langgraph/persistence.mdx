@@ -72,7 +72,7 @@ checkpointer = InMemorySaver()
 graph = workflow.compile(checkpointer=checkpointer)
 
 config: RunnableConfig = {"configurable": {"thread_id": "1"}}
-graph.invoke({"foo": ""}, config)
+graph.invoke({"foo": "", "bar":[]}, config)
 ```
 
 

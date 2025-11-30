@@ -118,7 +118,6 @@ Define complex inputs with Pydantic models or JSON schemas:
     ```
 </CodeGroup>
 
-python
 ### Reserved argument names
 
 The following parameter names are reserved and cannot be used as tool arguments. Using these names will cause runtime errors.
@@ -129,7 +128,7 @@ The following parameter names are reserved and cannot be used as tool arguments.
 | `runtime` | Reserved for `ToolRuntime` parameter (accessing state, context, store) |
 
 To access runtime information, use the [`ToolRuntime`](https://reference.langchain.com/python/langchain/tools/#langchain.tools.ToolRuntime) parameter instead of naming your own arguments `config` or `runtime`.
-:::
+
 
 ## Accessing Context
 
@@ -233,7 +232,7 @@ def get_user_preference(
 ```
 
 <Warning>
-The `tool_runtime` parameter is hidden from the model. For the example above, the model only sees `pref_name` in the tool schema - `tool_runtime` is *not* included in the request.
+The `runtime` parameter is hidden from the model. For the example above, the model only sees `pref_name` in the tool schema - `runtime` is *not* included in the request.
 </Warning>
 
 **Updating state:**

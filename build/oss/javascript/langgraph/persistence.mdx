@@ -78,7 +78,7 @@ const checkpointer = new MemorySaver();
 const graph = workflow.compile({ checkpointer });
 
 const config = { configurable: { thread_id: "1" } };
-await graph.invoke({ foo: "" }, config);
+await graph.invoke({ foo: "", bar: [] }, config);
 ```
 
 
