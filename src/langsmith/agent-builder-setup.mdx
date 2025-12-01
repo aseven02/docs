@@ -7,23 +7,6 @@ mode: wide
 
 This page lists the workspace secrets you need to add before using Agent Builder. Add these in your LangSmith workspace settings under Secrets. Keep values scoped to your workspace and avoid placing credentials in prompts or code.
 
-## Workspace vs personal agents
-
-Agent Builder supports two visibility modes:
-
-- Personal agents: private to the creator. Useful for personal workflows and experiments. These use your user identity and user‑scoped tool authorizations.
-- Workspace agents: shared within the [workspace](/langsmith/administration-overview#workspaces). Good for team workflows. These use workspace‑scoped configuration and can run with team‑managed secrets.
-
-### Differences
-
-- Ownership and access: personal agents are only visible to you; workspace agents are visible to permitted users in the workspace.
-- Tool auth: both modes support OAuth and secret‑based tools. Personal agents typically use user tokens; workspace agents can use workspace‑managed app auth where appropriate.
-- Secrets: use workspace secrets for API keys in both modes. Avoid putting credentials in prompts or code.
-
-<Tip>
-If you use custom authentication, ensure your auth middleware distinguishes user identity from workspace context and passes both as needed. This lets team agents act on behalf of the caller while still respecting workspace access controls.
-</Tip>
-
 ## How to add workspace secrets
 
 In the [LangSmith UI](https://smith.langchain.com), ensure that you have an LLM API key set as a [workspace secret](/langsmith/administration-overview#workspace-secrets) (either Anthropic or OpenAI API key).
