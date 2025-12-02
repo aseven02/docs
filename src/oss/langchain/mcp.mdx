@@ -568,43 +568,6 @@ for message in response["messages"]:
         print(f"Structured content: {structured_data}")
 ```
 
-##### Creating an MCP server with structured content
-
-Use [FastMCP](https://gofastmcp.com) to create servers that return structured content:
-
-```python MCP server returning structured content
-from fastmcp import FastMCP
-
-mcp = FastMCP("DataAnalyzer")
-
-@mcp.tool()
-def analyze_data(dataset_id: str) -> tuple[str, dict]:
-    """Analyze a dataset and return results.
-
-    Returns both a human-readable summary and structured data.
-    """
-    # Perform analysis...
-    results = {
-        "dataset_id": dataset_id,
-        "row_count": 1000,
-        "columns": ["id", "name", "value"],
-        "statistics": {
-            "mean": 42.5,
-            "median": 40.0,
-            "std_dev": 12.3
-        }
-    }
-
-    # Return (text_content, structured_content)
-    return (  # [!code highlight]
-        f"Analysis complete for dataset {dataset_id}: 1000 rows, 3 columns",  # [!code highlight]
-        results  # This becomes structuredContent  # [!code highlight]
-    )  # [!code highlight]
-
-if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
-```
-
 ##### Artifact structure
 
 The artifact returned by MCP tools has the following structure:
@@ -763,26 +726,6 @@ async def auth_header_interceptor(
         headers={"Authorization": f"Bearer {token}"}  # [!code highlight]
     )
     return await handler(modified_request)
-```
-
-##### Short-circuiting execution
-
-Interceptors can skip the handler entirely and return a custom result:
-
-```python Short-circuit interceptor
-from mcp.types import CallToolResult, TextContent
-
-async def mock_interceptor(
-    request: MCPToolCallRequest,
-    handler,
-):
-    """Return mock data for testing."""
-    if request.name == "get_weather":
-        return CallToolResult(  # [!code highlight]
-            content=[TextContent(type="text", text="Mocked: Sunny, 72°F")],  # [!code highlight]
-            isError=False,  # [!code highlight]
-        )  # [!code highlight]
-    return await handler(request)
 ```
 
 ##### Composing interceptors
