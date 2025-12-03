@@ -636,7 +636,8 @@
                           "group": "Anthropic",
                           "pages": [
                             "oss/javascript/integrations/providers/anthropic",
-                            "oss/javascript/integrations/chat/anthropic"
+                            "oss/javascript/integrations/chat/anthropic",
+                            "oss/javascript/integrations/tools/anthropic"
                           ]
                         },
                         {
