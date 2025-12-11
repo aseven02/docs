@@ -12,6 +12,10 @@ This tutorial shows how to use **progressive disclosure** - a context management
 
 **What you'll build:** A SQL query assistant with two skills (sales analytics and inventory management). The agent sees lightweight skill descriptions in its system prompt, then loads full database schemas and business logic through tool calls only when relevant to the user's query.
 
+<Note>
+For a more complete example of a SQL agent with query execution, error correction, and validation, see our [SQL Agent tutorial](/oss/langchain/sql-agent). This tutorial focuses on the progressive disclosure pattern which can be applied to any domain.
+</Note>
+
 ## How it works
 
 Here's the flow when a user asks for a SQL query:
@@ -52,7 +56,7 @@ flowchart TD
 **What are skills:** Skills, as popularized by Claude Code, are primarily prompt-based: self-contained units of specialized instructions for specific business tasks. In Claude Code, skills are exposed as directories with files on the file system, discovered through file operations. Skills guide behavior through prompts and can provide information about tool usage or include sample code for a coding agent to execute.
 
 <Tip>
-Skills with progressive disclosure can be viewed as a form of RAG (Retrieval-Augmented Generation), where each skill is a retrieval unit—though not necessarily backed by embeddings or keyword search, but by tools for browsing content (like file operations or, in this tutorial, direct lookup).
+Skills with progressive disclosure can be viewed as a form of [RAG (Retrieval-Augmented Generation)](/oss/langchain/rag), where each skill is a retrieval unit—though not necessarily backed by embeddings or keyword search, but by tools for browsing content (like file operations or, in this tutorial, direct lookup).
 </Tip>
 
 **Trade-offs:**
@@ -327,14 +331,14 @@ def load_skill(skill_name: str) -> str:
     return f"Skill '{skill_name}' not found. Available skills: {available}"
 ```
 
-The `load_skill` tool returns the full skill content as a string, which becomes part of the conversation as a ToolMessage.
+The `load_skill` tool returns the full skill content as a string, which becomes part of the conversation as a ToolMessage. For more details on creating and using tools, see the [Tools guide](/oss/langchain/tools).
 
 ## 3. Build skill middleware
 
 Create custom middleware that injects skill descriptions into the system prompt. This middleware makes skills discoverable without loading their full content upfront.
 
 <Note>
-This guide demonstrates creating custom middleware. For a comprehensive guide on middleware concepts and patterns, see the [custom middleware documentation](/oss/python/langchain/middleware/custom).
+This guide demonstrates creating custom middleware. For a comprehensive guide on middleware concepts and patterns, see the [custom middleware documentation](/oss/langchain/middleware/custom).
 </Note>
 
 ```python
@@ -960,7 +964,7 @@ The choice depends on your requirements: in-memory is fastest but requires redep
 
 <Accordion title="Combining with few-shot prompting and other techniques">
 
-Progressive disclosure is fundamentally a **context engineering technique** - you're managing what information is available to the agent and when. This tutorial focused on loading database schemas, but the same principles apply to other types of context.
+Progressive disclosure is fundamentally a **[context engineering](/oss/langchain/context-engineering) technique** - you're managing what information is available to the agent and when. This tutorial focused on loading database schemas, but the same principles apply to other types of context.
 
 ### Combining with few-shot prompting
 
@@ -997,6 +1001,8 @@ This combination of progressive disclosure (loading schemas on-demand) and dynam
 ## Next steps
 
 - Learn about [middleware](/oss/langchain/middleware) for more dynamic agent behaviors
+- Explore [context engineering](/oss/langchain/context-engineering) techniques for managing agent context
 - Explore the [handoffs pattern](/oss/langchain/customer-support-handoffs) for sequential workflows
 - Read the [supervisor pattern](/oss/langchain/supervisor) for parallel task routing
+- See [multi-agent patterns](/oss/langchain/multi-agent) for other approaches to specialized agents
 - Use [LangSmith](https://smith.langchain.com) to debug and monitor skill loading
