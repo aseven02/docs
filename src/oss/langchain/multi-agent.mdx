@@ -12,9 +12,7 @@ When developers say they need "multi-agent," they're usually looking for one or 
 * **Distributed development**: Allow different teams to develop and maintain capabilities independently, composing them into a larger system with clear boundaries and independent testing.
 * **Parallelization**: Spawn specialized workers for subtasks and execute them concurrently.
 
-## When to use
-
-Consider multi-agent patterns when:
+Multi-agent patterns are particularly valuable when:
 
 * A single agent has too many [tools](/oss/langchain/tools) and makes poor decisions about which to use.
 * [Context](/oss/concepts/context) or [memory](/oss/langchain/short-term-memory) grows too large for one agent to track effectively.
@@ -24,28 +22,24 @@ Consider multi-agent patterns when:
 
 ## Context engineering
 
-At the center of multi-agent design is **[context engineering](/oss/langchain/context-engineering)** — deciding what information each agent sees. LangChain gives you fine-grained control over:
-
-* Which parts of the conversation or state are passed to each agent.
-* Specialized prompts tailored to sub-agents.
-* Inclusion/exclusion of intermediate reasoning.
-* Customizing input/output formats per agent.
+At the center of multi-agent design is **[context engineering](/oss/langchain/context-engineering)** — deciding what information each agent sees. LangChain gives you fine-grained control over which parts of the conversation or state are passed to each agent, specialized prompts tailored to sub-agents, inclusion or exclusion of intermediate reasoning, and customizing input/output formats per agent.
 
 The quality of your system depends on context engineering. The goal is to ensure that each agent has access to the correct data it needs to perform its task, whether it's acting as a tool or as an active agent.
 
 ## Patterns
 
-There are four main patterns for building multi-agent systems, each suited to different use cases:
+There are five main patterns for building multi-agent systems, each suited to different use cases:
 
 | Pattern | How it works |
 |--------------|--------------|
 | [**Supervisor**](#supervisor) | A supervisor agent calls other agents as tools. Centralized control — all routing passes through the supervisor. |
-| [**Dynamic agent**](#dynamic-agent) | Single agent whose available tools and capabilities change based on state/memory. Useful for enforcing sequential constraints or conditionally unlocking features. |
+| [**State machine**](#state-machine) | Single agent whose configuration (prompt, tools, capabilities) changes as it moves through different states. Efficient for sequential workflows — one tool call both performs the action and transitions to the next state. |
 | [**Skills**](#skills) | Specialized prompts loaded on-demand. The main agent stays in control and gains additional context as needed. |
+| [**Router**](#router) | A routing step classifies input and directs it to one or more specialized agents. Results are collected and returned to the user. |
 | [**Custom workflow**](#custom-workflow) | Build bespoke logic with LangGraph, mixing deterministic and agentic steps. Reuse or customize agents as needed. |
 
 <Tip>
-    You can mix architectures! For example, a **supervisor** can manage **workflow** sub-graphs, or a **dynamic agent** can invoke **skills** at certain stages.
+    You can mix architectures! For example, a **supervisor** can manage **workflow** sub-graphs, or a **state machine** can invoke **skills** at certain stages.
 </Tip>
 
 ## Supervisor
@@ -66,12 +60,12 @@ graph LR
 
 **Key characteristics:**
 
-* **Centralized control**: All routing passes through the supervisor
-* **Sub-agents as tools**: Each sub-agent is wrapped as a callable tool
-* **No direct user interaction**: Sub-agents return results to the supervisor, not the user
-* **Parallel execution**: The supervisor can invoke multiple sub-agents in a single turn
+* Centralized control: All routing passes through the supervisor
+* Sub-agents as tools: Each sub-agent is wrapped as a callable tool
+* No direct user interaction: Sub-agents return results to the supervisor, not the user
+* Parallel execution: The supervisor can invoke multiple sub-agents in a single turn
 
-Use the supervisor pattern when you have **multiple distinct domains** (e.g., calendar, email, CRM, database), sub-agents **don't need to converse directly** with users, or you want **centralized workflow control**. For simpler cases with just a few tools, use a single agent.
+Use the supervisor pattern when you have multiple distinct domains (e.g., calendar, email, CRM, database), sub-agents don't need to converse directly with users, or you want centralized workflow control. For simpler cases with just a few tools, use a single agent.
 
 <Card
     title="Tutorial: Build a supervisor agent"
@@ -82,29 +76,24 @@ Use the supervisor pattern when you have **multiple distinct domains** (e.g., ca
     Learn how to build a personal assistant using the supervisor pattern, where a central supervisor agent coordinates specialized worker agents.
 </Card>
 
-### Example
-
-The example below shows how a main agent is given access to a single sub-agent via a tool definition:
+The key idea is wrapping sub-agents as tools that the supervisor can call:
 
 :::python
 ```python
 from langchain.tools import tool
 from langchain.agents import create_agent
 
+# Create a sub-agent
+subagent = create_agent(model="...", tools=[...])  # [!code highlight]
 
-subagent1 = create_agent(model="...", tools=[...])
-
-@tool(
-    "subagent1_name",
-    description="subagent1_description"
-)
-def call_subagent1(query: str):
-    result = subagent1.invoke({
-        "messages": [{"role": "user", "content": query}]
-    })
+# Wrap it as a tool  # [!code highlight]
+@tool("subagent_name", description="subagent_description")  # [!code highlight]
+def call_subagent(query: str):  # [!code highlight]
+    result = subagent.invoke({"messages": [{"role": "user", "content": query}]})
     return result["messages"][-1].content
 
-agent = create_agent(model="...", tools=[call_subagent1])
+# Supervisor agent with sub-agent as a tool  # [!code highlight]
+supervisor = create_agent(model="...", tools=[call_subagent])  # [!code highlight]
 ```
 :::
 :::js
@@ -112,52 +101,45 @@ agent = create_agent(model="...", tools=[call_subagent1])
 import { createAgent, tool } from "langchain";
 import * as z from "zod";
 
-const subagent1 = createAgent({...});
+// Create a sub-agent
+const subagent = createAgent({...});  // [!code highlight]
 
-const callSubagent1 = tool(
-  async ({ query }) => {
-    const result = await subagent1.invoke({
+// Wrap it as a tool  // [!code highlight]
+const callSubagent = tool(  // [!code highlight]
+  async ({ query }) => {  // [!code highlight]
+    const result = await subagent.invoke({
       messages: [{ role: "user", content: query }]
     });
     return result.messages.at(-1)?.text;
   },
   {
-    name: "subagent1_name",
-    description: "subagent1_description",
+    name: "subagent_name",
+    description: "subagent_description",
     schema: z.object({
-      query: z.string().describe("The query to to send to subagent1."),
-    }),
+      query: z.string().describe("The query to send to subagent")
+    })
   }
 );
 
-const agent = createAgent({
-  model,
-  tools: [callSubagent1]
-});
+// Supervisor agent with sub-agent as a tool  // [!code highlight]
+const supervisor = createAgent({ model, tools: [callSubagent] });  // [!code highlight]
 ```
 :::
 
-In this pattern:
-
-1. The main agent invokes `call_subagent1` when it decides the task matches the sub-agent's description.
-2. The sub-agent runs independently and returns its result.
-3. The main agent receives the result and continues orchestration.
+The supervisor invokes the sub-agent tool when it decides the task matches the sub-agent's description, receives the result, and continues orchestration.
 
 ### Where to customize
 
 There are several points where you can control how context is passed between the main agent and its subagents:
 
-1. **Sub-agent name** (`"subagent1_name"`): This is how the main agent refers to the sub-agent. Since it influences prompting, choose it carefully.
-2. **Sub-agent description** (`"subagent1_description"`): This is what the main agent knows about the sub-agent. It directly shapes how the main agent decides when to call it.
-3. **[Input to the sub-agent](#control-the-input-to-the-sub-agent)**: You can customize this input to better shape how the sub-agent interprets tasks. In the example above, we pass the agent-generated `query` directly.
-4. **[Output from the sub-agent](#control-the-output-from-the-sub-agent)**: This is the response passed back to the main agent. You can adjust what is returned to control how the main agent interprets results. In the example above, we return the final message text, but you could return additional state or metadata.
+1. **Sub-agent name** (`"subagent_name"`): This is how the main agent refers to the sub-agent. Since it influences prompting, choose it carefully.
+2. **Sub-agent description** (`"subagent_description"`): This is what the main agent knows about the sub-agent. It directly shapes how the main agent decides when to call it.
+3. **Input to the sub-agent**: You can customize this input to better shape how the sub-agent interprets tasks. In the example above, we pass the agent-generated `query` directly.
+4. **Output from the sub-agent**: This is the response passed back to the main agent. You can adjust what is returned to control how the main agent interprets results. In the example above, we return the final message text, but you could return additional state or metadata.
 
-#### Sub-agent input
+<Accordion title="Customizing sub-agent input">
 
-There are two main levers to control the input that the main agent passes to a sub-agent:
-
-* **Modify the prompt**: Adjust the main agent's prompt or the tool metadata (i.e., sub-agent's name and description) to better guide when and how it calls the sub-agent.
-* **Context injection**: Add input that isn't practical to capture in a static prompt (e.g., full message history, prior results, task metadata) by adjusting the tool call to pull from the agent's state.
+There are two main levers to control the input that the main agent passes to a sub-agent: modifying the prompt (adjust the main agent's prompt or tool metadata to better guide when and how it calls the sub-agent) or context injection (add input that isn't practical to capture in a static prompt, like full message history, prior results, or task metadata, by adjusting the tool call to pull from the agent's state).
 
 :::python
 ```python
@@ -213,16 +195,11 @@ const callSubagent1 = tool(
 ```
 :::
 
-#### Sub-agent output
+</Accordion>
 
-Two common strategies for shaping what the main agent receives back from a sub-agent:
+<Accordion title="Customizing sub-agent output">
 
-* **Modify the prompt**: Refine the sub-agent's prompt to specify exactly what should be returned.
-  * Useful when outputs are incomplete, too verbose, or missing key details.
-  * A common failure mode is that the sub-agent performs tool calls or reasoning but does **not include the results** in its final message. Remind it that the controller (and user) only see the final output, so all relevant info must be included there.
-* **Custom output formatting**: Adjust or enrich the sub-agent's response in code before handing it back to the main agent.
-  * Example: pass specific state keys back to the main agent in addition to the final text.
-  * This requires wrapping the result in a @[`Command`] (or equivalent structure) so you can merge custom state with the sub-agent's response.
+Two common strategies for shaping what the main agent receives back from a sub-agent: First, modify the sub-agent's prompt to specify exactly what should be returned—this is useful when outputs are incomplete, too verbose, or missing key details. A common failure mode is that the sub-agent performs tool calls or reasoning but doesn't include the results in its final message; remind it that the controller and user only see the final output, so all relevant info must be included there. Second, adjust or enrich the sub-agent's response in code before handing it back to the main agent—for example, pass specific state keys back in addition to the final text. This requires wrapping the result in a @[`Command`] (or equivalent structure) so you can merge custom state with the sub-agent's response.
 
 :::python
 ```python
@@ -295,29 +272,47 @@ const callSubagent1 = tool(
 ```
 :::
 
+</Accordion>
 
-## Dynamic agent
 
-In the **dynamic agent** architecture, you have a single agent whose behavior (prompt, tools, and capabilities) changes dynamically based on state. Under the hood, this is a state machine implemented via [middleware](/oss/langchain/middleware/overview) that performs handoffs through tool calls.
+## State machine
+
+In the **state machine** architecture, you have a single agent whose behavior (prompt, tools, and capabilities) changes dynamically based on state. The state machine is implemented via [middleware](/oss/langchain/middleware/overview) that performs transitions through tool calls.
 
 ```mermaid
-graph LR
-    A[User] --> B[Dynamic Agent]
-    B --> |state: triage| C[Triage config]
-    B --> |state: specialist| D[Specialist config]
-    C --> B
-    D --> B
-    B --> A
+stateDiagram-v2
+    [*] --> Triage
+    Triage --> Specialist: record_warranty_status()
+    Specialist --> Resolution: record_issue_type()
+    Resolution --> [*]
+
+    note right of Triage
+        Step 1: Collect information
+        Tools: [record_warranty_status]
+    end note
+
+    note right of Specialist
+        Step 2: Classify the issue
+        Tools: [record_issue_type]
+    end note
+
+    note right of Resolution
+        Step 3: Provide solution
+        Tools: [provide_solution, escalate_to_human]
+    end note
 ```
 
 **Key characteristics:**
 
-* **Single agent, multiple configurations**: The agent identity changes based on state
-* **State-driven behavior**: Prompts and tools are selected based on a state variable (e.g., `active_agent`)
-* **Direct user interaction**: The active agent configuration handles user messages directly
-* **Persistent state**: State survives across conversation turns
+* State-driven configuration: A single agent whose prompts and tools change dynamically based on a state variable (e.g., `current_step`)
+* Direct user interaction: Each step's configuration handles user messages directly
+* Persistent state: State survives across conversation turns
 
-Use the dynamic agent pattern when you need to **enforce sequential constraints** (unlock capabilities only after preconditions are met), sub-agents need to **converse directly with the user**, or you're building **multi-stage conversational flows**. This pattern is particularly valuable for customer support scenarios where you need to collect information in a specific sequence — for example, collecting a warranty ID before processing a refund.
+<Tip>
+**Alternative to handoffs**: This pattern is an efficient alternative to handoff-based approaches like [OpenAI's agent handoffs](https://openai.github.io/openai-agents-python/handoffs/) (which popularized this technique) or [LangGraph swarm](https://github.com/langchain-ai/langgraph-swarm-py). With handoffs, you typically need two tool calls—one to transfer control, then another to act. The state machine pattern is more efficient: a single tool call both performs the action and transitions to the next step. Importantly, you don't need to think of this system as multiple agents—it's just a single agent that changes its behavior, which from an end-user perspective can feel smoother in many customer support scenarios (users can just ask their questions without having to think about who can answer them).
+</Tip>
+
+Use the state machine pattern when you need to enforce sequential constraints (unlock capabilities only after preconditions are met), the agent needs to converse directly with the user across different states, or you're building multi-stage conversational flows. This pattern is particularly valuable for customer support scenarios where you need to collect information in a specific sequence — for example, collecting a warranty ID before processing a refund.
 
 <Card
     title="Tutorial: Build a customer support state machine"
@@ -328,89 +323,515 @@ Use the dynamic agent pattern when you need to **enforce sequential constraints*
     Learn how to build a customer support workflow using the state machine pattern, where a single agent transitions between different configurations.
 </Card>
 
-<Tip>
-    Design dynamic agent flows carefully to avoid creating rigid, frustrating experiences. Users should be able to correct mistakes, change the conversation flow, and navigate back to previous steps. Overly restrictive flows can feel like poorly designed phone trees.
-</Tip>
+At the core, the state machine pattern relies on [persistent state](/oss/langchain/short-term-memory) that survives across conversation turns:
 
-At the core, the dynamic agent pattern relies on [persistent state](/oss/langchain/short-term-memory) that survives across conversation turns:
+1. **State variable**: A field in your state schema (e.g., `current_step: str`) tracks which step is currently active.
+2. **State update tool**: The agent uses a tool to change the value of `current_step` when transitioning to the next step.
+3. **Dynamic configuration**: On each turn, middleware reads `current_step` from the persisted state and dynamically configures the appropriate system prompt, tools, and behavior.
 
-1. **State variable**: A field in your state schema (e.g., `active_agent: str`) tracks which agent configuration is currently active.
-2. **State update tool**: The agent uses a tool to change the value of `active_agent` when transitioning to a new stage.
-3. **Dynamic configuration**: On each turn, the graph entry point reads `active_agent` from the persisted state and dynamically configures the appropriate system prompt, tools, and behavior.
-
-This pattern creates a state machine where each configuration represents a distinct state with its own behavior and capabilities.
+This pattern creates a state machine where each step represents a distinct state with its own configuration and capabilities.
 
 ### Example
 
-Here's an example showing how agents transition between configurations:
+<Accordion title="View complete example">
 
 :::python
 ```python
 from langchain.agents import AgentState, create_agent
+from langchain.agents.middleware import wrap_model_call, ModelRequest, ModelResponse
 from langchain.tools import tool, ToolRuntime
+from langchain.messages import ToolMessage
 from langgraph.types import Command
+from typing import Callable
 
-class SupportState(AgentState):
-    """Track which agent is currently active."""
-    current_agent: str = "triage"
+# 1. Define state with current_step tracker
+class SupportState(AgentState):  # [!code highlight]
+    """Track which step is currently active."""
+    current_step: str = "triage"  # [!code highlight]
+    warranty_status: str | None = None
 
+# 2. Tools update current_step via Command
 @tool
-def transfer_to_specialist(
+def record_warranty_status(
+    status: str,
     runtime: ToolRuntime[None, SupportState]
-) -> Command:
-    """Transfer conversation to a specialist agent."""
-    return Command(update={"current_agent": "specialist"})
+) -> Command:  # [!code highlight]
+    """Record warranty status and transition to next step."""
+    return Command(update={  # [!code highlight]
+        "messages": [  # [!code highlight]
+            ToolMessage(
+                content=f"Warranty status recorded: {status}",
+                tool_call_id=runtime.tool_call_id
+            )
+        ],
+        "warranty_status": status,
+        "current_step": "specialist"  # Transition to next step  # [!code highlight]
+    })
 
-# Each agent configuration has different prompts/tools
+# 3. Middleware applies dynamic configuration based on current_step
+@wrap_model_call  # [!code highlight]
+def apply_step_config(
+    request: ModelRequest,
+    handler: Callable[[ModelRequest], ModelResponse]
+) -> ModelResponse:
+    """Configure agent behavior based on current_step."""
+    step = request.state.get("current_step", "triage")  # [!code highlight]
+
+    # Map steps to their configurations
+    configs = {
+        "triage": {
+            "prompt": "Collect warranty information...",
+            "tools": [record_warranty_status]
+        },
+        "specialist": {
+            "prompt": "Provide solutions based on warranty: {warranty_status}",
+            "tools": [provide_solution, escalate]
+        }
+    }
+
+    config = configs[step]
+    request = request.override(  # [!code highlight]
+        system_prompt=config["prompt"].format(**request.state),  # [!code highlight]
+        tools=config["tools"]  # [!code highlight]
+    )
+    return handler(request)
+
+# 4. Create agent with middleware
 agent = create_agent(
     model,
-    tools=[transfer_to_specialist, ...],
-    state_schema=SupportState
+    tools=[record_warranty_status, provide_solution, escalate],
+    state_schema=SupportState,
+    middleware=[apply_step_config],  # [!code highlight]
+    checkpointer=InMemorySaver()  # Persist state across turns  # [!code highlight]
 )
 ```
 :::
 :::js
 ```typescript
 import { tool, createAgent, AgentState } from "langchain";
+import { wrapModelCall, ModelRequest, ModelResponse } from "langchain/agents/middleware";
 import { Command } from "@langchain/langgraph";
+import { ToolMessage } from "langchain/messages";
+import * as z from "zod";
 
-const SupportState = z.object({
-  currentAgent: z.string().default("triage")
+// 1. Define state with current_step tracker
+const SupportState = z.object({  // [!code highlight]
+  currentStep: z.string().default("triage"),  // [!code highlight]
+  warrantyStatus: z.string().optional()
 });
 
-const transferToSpecialist = tool(
-  async (_, config) => {
-    return new Command({
-      update: { currentAgent: "specialist" }
+// 2. Tools update currentStep via Command
+const recordWarrantyStatus = tool(
+  async ({ status }, config) => {
+    return new Command({  // [!code highlight]
+      update: {  // [!code highlight]
+        messages: [  // [!code highlight]
+          new ToolMessage({
+            content: `Warranty status recorded: ${status}`,
+            tool_call_id: config.toolCall?.id!
+          })
+        ],
+        warrantyStatus: status,
+        currentStep: "specialist"  // Transition to next step  // [!code highlight]
+      }
     });
   },
   {
-    name: "transfer_to_specialist",
-    description: "Transfer conversation to a specialist",
-    schema: z.object({})
+    name: "record_warranty_status",
+    description: "Record warranty status and transition",
+    schema: z.object({ status: z.string() })
   }
 );
 
+// 3. Middleware applies dynamic configuration based on currentStep
+const applyStepConfig = wrapModelCall(  // [!code highlight]
+  async (request: ModelRequest, handler) => {
+    const step = request.state.currentStep || "triage";  // [!code highlight]
+
+    // Map steps to their configurations
+    const configs = {
+      triage: {
+        prompt: "Collect warranty information...",
+        tools: [recordWarrantyStatus]
+      },
+      specialist: {
+        prompt: `Provide solutions based on warranty: ${request.state.warrantyStatus}`,
+        tools: [provideSolution, escalate]
+      }
+    };
+
+    const config = configs[step];
+    request = request.override({  // [!code highlight]
+      systemPrompt: config.prompt,  // [!code highlight]
+      tools: config.tools  // [!code highlight]
+    });
+    return handler(request);
+  }
+);
+
+// 4. Create agent with middleware
 const agent = createAgent({
   model,
-  tools: [transferToSpecialist, ...],
-  stateSchema: SupportState
+  tools: [recordWarrantyStatus, provideSolution, escalate],
+  stateSchema: SupportState,
+  middleware: [applyStepConfig],  // [!code highlight]
+  checkpointer: new InMemorySaver()  // Persist state across turns  // [!code highlight]
 });
 ```
 :::
 
-The key mechanism is using @[`Command`] to update state fields that control which agent configuration is active. Middleware can then read this state and dynamically configure the agent's behavior.
+</Accordion>
+
+The key mechanism: tools use @[`Command`] to update `current_step`, then middleware reads this state and dynamically configures the agent's system prompt and available tools on each turn.
+
+
+## Skills
+
+In the **skills** architecture, specialized capabilities are packaged as invokable "skills" that augment an agent's behavior. Skills are primarily prompt-driven specializations that an agent can invoke on-demand.
+
+```mermaid
+graph LR
+    A[User] --> B[Agent]
+    B --> C[Python skill]
+    B --> D[SQL skill]
+    B --> E[Docs skill]
+    B --> A
+```
+
+**Key characteristics:**
+
+* Prompt-driven specialization: Skills are primarily defined by specialized prompts
+* Progressive disclosure: Skills become available based on context or user needs
+* Team distribution: Different teams can develop and maintain skills independently
+* Lightweight composition: Skills are simpler than full sub-agents
+
+Use the skills pattern when you want a single agent with many possible specializations, you don't need to enforce specific constraints between skills, or different teams need to develop capabilities independently. Common examples include coding assistants (skills for different languages or tasks), knowledge bases (skills for different domains), and creative assistants (skills for different formats).
+
+<Card
+    title="Tutorial: Build an agent with on-demand skill loading"
+    icon="wand-magic-sparkles"
+    href="/oss/langchain/progressive-disclosure-skills"
+    arrow cta="Learn more"
+>
+    Learn how to implement skills with progressive disclosure, where the agent loads specialized prompts and schemas on-demand rather than upfront.
+</Card>
+
+
+## Router
+
+In the **router** architecture, a routing step decomposes the input and directs it to one or more specialized agents. The router can use query decomposition to determine which domain experts to consult, then runs them in parallel. Results from all agents are collected, synthesized, and returned.
+
+```mermaid
+graph LR
+    A[Query] --> B[Router]
+    B --> C[Code docs agent]
+    B --> D[MCP docs agent]
+    B --> E[Notion docs agent]
+    C --> F[Synthesize results]
+    D --> F
+    E --> F
+    F --> G[Combined answer]
+```
+
+**Key characteristics:**
+
+* Query decomposition: Router breaks down questions and determines which experts to consult
+* Domain experts: Each agent specializes in a specific knowledge base or domain
+* Parallel execution: Multiple agents process the request concurrently
+* Result synthesis: Outputs from specialized agents are combined into a coherent response
+* Stateless design: Best suited for single-turn requests rather than multi-turn conversations
+
+This pattern excels at combining expertise from multiple domains. It's best thought of as a stateless API — a tool that takes a query and returns synthesized results. While it could be adapted for conversations (by including past interactions in prompts), a simpler approach is to expose the entire router as a tool that another conversational agent can call.
+
+<Tip>
+**Router vs Supervisor**: The [supervisor pattern](#supervisor) can also route to multiple agents. Use the router pattern when you need specialized preprocessing or custom routing logic. Use the supervisor pattern when you want the LLM to decide which agents to call dynamically.
+</Tip>
+
+Use the router pattern when you have distinct knowledge domains that need to be queried, questions that benefit from consulting multiple experts, or you want to parallelize search across multiple data sources. Common examples include documentation search across multiple repositories, research assistants querying different knowledge bases, and content retrieval from diverse sources.
+
+### Example
+
+A documentation search router that decomposes queries and consults multiple domain experts in parallel. The router determines which knowledge bases to query (code docs, MCP docs, company Notion), runs agents concurrently, and synthesizes their results.
+
+<Accordion title="View complete example">
+
+:::python
+```python
+from typing import TypedDict
+from langgraph.graph import StateGraph, START, END, Send
+from langchain.agents import create_agent
+from langchain_openai import ChatOpenAI
+
+class DocsState(TypedDict):
+    query: str
+    routes: list[str]  # Which knowledge bases to query
+    code_docs_result: str | None
+    mcp_docs_result: str | None
+    notion_docs_result: str | None
+    final_answer: str
+
+# Domain expert agents with specialized knowledge
+code_docs_agent = create_agent(
+    model="openai:gpt-4o",
+    prompt="You are a code documentation expert. Answer questions about API references, code examples, and implementation details.",
+    name="code_docs"
+)
+
+mcp_docs_agent = create_agent(
+    model="openai:gpt-4o",
+    prompt="You are an MCP (Model Context Protocol) expert. Answer questions about MCP servers, tools, and integrations.",
+    name="mcp_docs"
+)
+
+notion_docs_agent = create_agent(
+    model="openai:gpt-4o",
+    prompt="You are a company knowledge expert. Answer questions about internal processes, policies, and team documentation.",
+    name="notion_docs"
+)
+
+router_llm = ChatOpenAI(model="gpt-4o-mini")
+
+def decompose_query(state: DocsState) -> dict:  # [!code highlight]
+    """Decompose query and determine which knowledge bases to consult."""  # [!code highlight]
+    response = router_llm.invoke([
+        {
+            "role": "system",
+            "content": "Analyze this query and determine which knowledge bases to consult. Return a JSON list with one or more of: 'code_docs', 'mcp_docs', 'notion_docs'."
+        },
+        {"role": "user", "content": state["query"]}
+    ])
+    # Parse LLM response to get routes (simplified for example)
+    routes = ["code_docs", "mcp_docs"]  # In practice, parse from LLM response
+    return {"routes": routes}
+
+# Route to multiple agents in parallel  # [!code highlight]
+def route_to_agents(state: DocsState) -> list[Send]:  # [!code highlight]
+    """Fan out to multiple agents in parallel."""  # [!code highlight]
+    return [Send(route, state) for route in state["routes"]]  # [!code highlight]
+
+def query_code_docs(state: DocsState) -> dict:
+    result = code_docs_agent.invoke({
+        "messages": [{"role": "user", "content": state["query"]}]
+    })
+    return {"code_docs_result": result["messages"][-1].content}
+
+def query_mcp_docs(state: DocsState) -> dict:
+    result = mcp_docs_agent.invoke({
+        "messages": [{"role": "user", "content": state["query"]}]
+    })
+    return {"mcp_docs_result": result["messages"][-1].content}
+
+def query_notion_docs(state: DocsState) -> dict:
+    result = notion_docs_agent.invoke({
+        "messages": [{"role": "user", "content": state["query"]}]
+    })
+    return {"notion_docs_result": result["messages"][-1].content}
+
+def synthesize_results(state: DocsState) -> dict:  # [!code highlight]
+    """Combine results from multiple agents into a coherent answer."""  # [!code highlight]
+    results = []
+    if state.get("code_docs_result"):
+        results.append(f"Code Docs: {state['code_docs_result']}")
+    if state.get("mcp_docs_result"):
+        results.append(f"MCP Docs: {state['mcp_docs_result']}")
+    if state.get("notion_docs_result"):
+        results.append(f"Notion: {state['notion_docs_result']}")
+
+    # Use LLM to synthesize
+    synthesis_response = router_llm.invoke([
+        {"role": "system", "content": "Synthesize these search results into a coherent answer."},
+        {"role": "user", "content": "\n\n".join(results)}
+    ])
+    return {"final_answer": synthesis_response.content}
+
+# Build workflow with parallel execution
+workflow = (
+    StateGraph(DocsState)
+    .add_node("decompose", decompose_query)
+    .add_node("code_docs", query_code_docs)
+    .add_node("mcp_docs", query_mcp_docs)
+    .add_node("notion_docs", query_notion_docs)
+    .add_node("synthesize", synthesize_results)
+    .add_edge(START, "decompose")
+    .add_conditional_edges("decompose", route_to_agents, ["code_docs", "mcp_docs", "notion_docs"])  # [!code highlight]
+    .add_edge("code_docs", "synthesize")
+    .add_edge("mcp_docs", "synthesize")
+    .add_edge("notion_docs", "synthesize")
+    .add_edge("synthesize", END)
+    .compile()
+)
+
+result = workflow.invoke({"query": "How do I use MCP with FastAPI?"})
+print(result["final_answer"])
+```
+:::
+:::js
+```typescript
+import { StateGraph, Annotation, START, END, Send } from "@langchain/langgraph";
+import { createAgent } from "langchain";
+import { ChatOpenAI } from "@langchain/openai";
+
+const DocsState = Annotation.Root({
+  query: Annotation<string>(),
+  routes: Annotation<string[]>(),
+  codeDocsResult: Annotation<string | null>(),
+  mcpDocsResult: Annotation<string | null>(),
+  notionDocsResult: Annotation<string | null>(),
+  finalAnswer: Annotation<string>()
+});
+
+// Domain expert agents with specialized knowledge
+const codeDocsAgent = createAgent({
+  model: "openai:gpt-4o",
+  prompt: "You are a code documentation expert. Answer questions about API references, code examples, and implementation details.",
+  name: "code_docs"
+});
+
+const mcpDocsAgent = createAgent({
+  model: "openai:gpt-4o",
+  prompt: "You are an MCP (Model Context Protocol) expert. Answer questions about MCP servers, tools, and integrations.",
+  name: "mcp_docs"
+});
+
+const notionDocsAgent = createAgent({
+  model: "openai:gpt-4o",
+  prompt: "You are a company knowledge expert. Answer questions about internal processes, policies, and team documentation.",
+  name: "notion_docs"
+});
+
+const routerLlm = new ChatOpenAI({ model: "gpt-4o-mini" });
+
+async function decomposeQuery(state: typeof DocsState.State) {  // [!code highlight]
+  // Decompose query and determine which knowledge bases to consult  // [!code highlight]
+  const response = await routerLlm.invoke([
+    {
+      role: "system",
+      content: "Analyze this query and determine which knowledge bases to consult. Return a JSON list with one or more of: 'code_docs', 'mcp_docs', 'notion_docs'."
+    },
+    { role: "user", content: state.query }
+  ]);
+  // Parse LLM response to get routes (simplified for example)
+  const routes = ["code_docs", "mcp_docs"];
+  return { routes };
+}
+
+// Route to multiple agents in parallel  // [!code highlight]
+function routeToAgents(state: typeof DocsState.State): Send[] {  // [!code highlight]
+  // Fan out to multiple agents in parallel  // [!code highlight]
+  return state.routes.map(route => new Send(route, state));  // [!code highlight]
+}
+
+async function queryCodeDocs(state: typeof DocsState.State) {
+  const result = await codeDocsAgent.invoke({
+    messages: [{ role: "user", content: state.query }]
+  });
+  return { codeDocsResult: result.messages.at(-1)?.content };
+}
+
+async function queryMcpDocs(state: typeof DocsState.State) {
+  const result = await mcpDocsAgent.invoke({
+    messages: [{ role: "user", content: state.query }]
+  });
+  return { mcpDocsResult: result.messages.at(-1)?.content };
+}
+
+async function queryNotionDocs(state: typeof DocsState.State) {
+  const result = await notionDocsAgent.invoke({
+    messages: [{ role: "user", content: state.query }]
+  });
+  return { notionDocsResult: result.messages.at(-1)?.content };
+}
+
+async function synthesizeResults(state: typeof DocsState.State) {  // [!code highlight]
+  // Combine results from multiple agents into a coherent answer  // [!code highlight]
+  const results: string[] = [];
+  if (state.codeDocsResult) results.push(`Code Docs: ${state.codeDocsResult}`);
+  if (state.mcpDocsResult) results.push(`MCP Docs: ${state.mcpDocsResult}`);
+  if (state.notionDocsResult) results.push(`Notion: ${state.notionDocsResult}`);
+
+  // Use LLM to synthesize
+  const synthesisResponse = await routerLlm.invoke([
+    { role: "system", content: "Synthesize these search results into a coherent answer." },
+    { role: "user", content: results.join("\n\n") }
+  ]);
+  return { finalAnswer: synthesisResponse.content };
+}
+
+// Build workflow with parallel execution
+const workflow = new StateGraph(DocsState)
+  .addNode("decompose", decomposeQuery)
+  .addNode("code_docs", queryCodeDocs)
+  .addNode("mcp_docs", queryMcpDocs)
+  .addNode("notion_docs", queryNotionDocs)
+  .addNode("synthesize", synthesizeResults)
+  .addEdge(START, "decompose")
+  .addConditionalEdges("decompose", routeToAgents, ["code_docs", "mcp_docs", "notion_docs"])  // [!code highlight]
+  .addEdge("code_docs", "synthesize")
+  .addEdge("mcp_docs", "synthesize")
+  .addEdge("notion_docs", "synthesize")
+  .addEdge("synthesize", END)
+  .compile();
+
+const result = await workflow.invoke({ query: "How do I use MCP with FastAPI?" });
+console.log(result.finalAnswer);
+```
+:::
+
+</Accordion>
+
+<Tip>
+**Using routers as tools**: The entire router workflow can be exposed as a tool that another agent calls. This is simpler than trying to make the router itself conversational.
+
+:::python
+```python
+@tool
+def search_docs(query: str) -> str:
+    """Search across multiple documentation sources."""
+    result = workflow.invoke({"query": query})
+    return result["final_answer"]
+
+# Now any conversational agent can use this tool
+conversational_agent = create_agent(
+    model,
+    tools=[search_docs],
+    prompt="You are a helpful assistant. Use search_docs to answer questions."
+)
+```
+:::
+:::js
+```typescript
+const searchDocs = tool(
+  async ({ query }) => {
+    const result = await workflow.invoke({ query });
+    return result.finalAnswer;
+  },
+  {
+    name: "search_docs",
+    description: "Search across multiple documentation sources",
+    schema: z.object({
+      query: z.string().describe("The search query")
+    })
+  }
+);
+
+// Now any conversational agent can use this tool
+const conversationalAgent = createAgent({
+  model,
+  tools: [searchDocs],
+  prompt: "You are a helpful assistant. Use search_docs to answer questions."
+});
+```
+:::
+</Tip>
 
 
 ## Custom workflow
 
 In the **custom workflow** architecture, agents are connected via deterministic transitions defined at graph construction time. The flow between agents is explicit and predictable.
 
-Use the workflow pattern when you have a **fixed sequence** of processing steps, agents are **independent** and don't need to be aware of each other, or you want **predictable, debuggable** execution.
+Use the workflow pattern when you have a fixed sequence of processing steps, agents are independent and don't need to be aware of each other, or you want predictable, debuggable execution.
 
-<Tabs>
-  <Tab title="Sequential">
-    In a **sequential pipeline**, nodes run in a fixed order. Each node processes the input and passes results to the next. Use this when you have distinct processing stages that must happen in sequence.
+In a **sequential pipeline**, nodes run in a fixed order. Each node processes the input and passes results to the next. Use this when you have distinct processing stages that must happen in sequence.
 
     ```mermaid
     graph LR
@@ -421,18 +842,20 @@ Use the workflow pattern when you have a **fixed sequence** of processing steps,
     ```
 
     Common examples:
-    - **Document processing**: extract → summarize → translate
-    - **Data pipelines**: extract → validate → transform → load
+    - Document processing: extract → summarize → translate
+    - Data pipelines: extract → validate → transform → load
 
     ### Example
 
-    This example builds a document processing pipeline that extracts text from a document, summarizes it, and translates the summary. The workflow uses **custom state** to pass structured data between nodes rather than relying solely on messages.
+    This example builds a document processing pipeline that extracts text from a document, summarizes it, and translates the summary. The workflow uses custom state to pass structured data between nodes rather than relying solely on messages.
 
     The pipeline demonstrates two node types:
-    - **Plain function**: Deterministic text extraction (no LLM)
-    - **Agent node**: LLM-powered summarization and translation
+    - Plain function: Deterministic text extraction (no LLM)
+    - Agent node: LLM-powered summarization and translation
 
     Using custom state fields (like `extracted_text` and `summary`) keeps each stage's output cleanly separated and makes debugging easier.
+
+    <Accordion title="View complete example">
 
     :::python
     ```python
@@ -548,230 +971,5 @@ Use the workflow pattern when you have a **fixed sequence** of processing steps,
     console.log(result.translation);
     ```
     :::
-  </Tab>
-  <Tab title="Router">
-    In a **router pattern**, a routing step examines the input and directs it to one of several specialist agents. The routing can be deterministic (based on keywords) or use an LLM classifier.
 
-    ```mermaid
-    graph LR
-        A[User] --> R[Router]
-        R -->|billing| B[Billing agent]
-        R -->|technical| C[Technical agent]
-        R -->|sales| D[Sales agent]
-        B --> E[Result]
-        C --> E
-        D --> E
-    ```
-
-    Common examples:
-    - **Support systems**: route to billing, technical, or sales specialists
-    - **Knowledge bases**: route questions to domain experts
-
-    ### Example
-
-    A customer support router that classifies incoming requests and directs them to specialized agents. This example uses an **LLM-based classifier** for more accurate routing than simple keyword matching, and stores the agent's response in a dedicated `answer` field.
-
-    :::python
-    ```python
-    from typing import TypedDict, Literal
-    from langgraph.graph import StateGraph, START, END
-    from langchain.agents import create_agent
-    from langchain_openai import ChatOpenAI
-
-    class SupportState(TypedDict):
-        question: str
-        route: str
-        answer: str
-
-    billing_agent = create_agent(
-        model="openai:gpt-4o",
-        prompt="You are a billing specialist. Help with invoices, payments, refunds, and subscription changes.",
-        name="billing"
-    )
-
-    technical_agent = create_agent(
-        model="openai:gpt-4o",
-        prompt="You are a technical support specialist. Help with bugs, errors, integrations, and troubleshooting.",
-        name="technical"
-    )
-
-    sales_agent = create_agent(
-        model="openai:gpt-4o",
-        prompt="You are a sales specialist. Help with pricing, plans, features, and enterprise inquiries.",
-        name="sales"
-    )
-
-    router_llm = ChatOpenAI(model="gpt-4o-mini")
-
-    def classify_request(state: SupportState) -> dict:
-        """Classify the support request using an LLM."""
-        response = router_llm.invoke([
-            {"role": "system", "content": "Classify this support request as 'billing', 'technical', or 'sales'. Reply with only one word."},
-            {"role": "user", "content": state["question"]}
-        ])
-        route = response.content.strip().lower()
-        if route not in ["billing", "technical", "sales"]:
-            route = "technical"
-        return {"route": route}
-
-    def route_to_agent(state: SupportState) -> Literal["billing", "technical", "sales"]:
-        return state["route"]
-
-    def handle_billing(state: SupportState) -> dict:
-        result = billing_agent.invoke({
-            "messages": [{"role": "user", "content": state["question"]}]
-        })
-        return {"answer": result["messages"][-1].content}
-
-    def handle_technical(state: SupportState) -> dict:
-        result = technical_agent.invoke({
-            "messages": [{"role": "user", "content": state["question"]}]
-        })
-        return {"answer": result["messages"][-1].content}
-
-    def handle_sales(state: SupportState) -> dict:
-        result = sales_agent.invoke({
-            "messages": [{"role": "user", "content": state["question"]}]
-        })
-        return {"answer": result["messages"][-1].content}
-
-    workflow = (
-        StateGraph(SupportState)
-        .add_node("classify", classify_request)
-        .add_node("billing", handle_billing)
-        .add_node("technical", handle_technical)
-        .add_node("sales", handle_sales)
-        .add_edge(START, "classify")
-        .add_conditional_edges("classify", route_to_agent)
-        .add_edge("billing", END)
-        .add_edge("technical", END)
-        .add_edge("sales", END)
-        .compile()
-    )
-
-    result = workflow.invoke({"question": "I was charged twice for my subscription last month"})
-    print(result["answer"])
-    ```
-    :::
-    :::js
-    ```typescript
-    import { StateGraph, Annotation, START, END } from "@langchain/langgraph";
-    import { createAgent } from "langchain";
-    import { ChatOpenAI } from "@langchain/openai";
-
-    const SupportState = Annotation.Root({
-      question: Annotation<string>(),
-      route: Annotation<string>(),
-      answer: Annotation<string>()
-    });
-
-    const billingAgent = createAgent({
-      model: "openai:gpt-4o",
-      prompt: "You are a billing specialist. Help with invoices, payments, refunds, and subscription changes.",
-      name: "billing"
-    });
-
-    const technicalAgent = createAgent({
-      model: "openai:gpt-4o",
-      prompt: "You are a technical support specialist. Help with bugs, errors, integrations, and troubleshooting.",
-      name: "technical"
-    });
-
-    const salesAgent = createAgent({
-      model: "openai:gpt-4o",
-      prompt: "You are a sales specialist. Help with pricing, plans, features, and enterprise inquiries.",
-      name: "sales"
-    });
-
-    const routerLlm = new ChatOpenAI({ model: "gpt-4o-mini" });
-
-    async function classifyRequest(state: typeof SupportState.State) {
-      const response = await routerLlm.invoke([
-        { role: "system", content: "Classify this support request as 'billing', 'technical', or 'sales'. Reply with only one word." },
-        { role: "user", content: state.question }
-      ]);
-      let route = response.content.toString().trim().toLowerCase();
-      if (!["billing", "technical", "sales"].includes(route)) {
-        route = "technical";
-      }
-      return { route };
-    }
-
-    function routeToAgent(state: typeof SupportState.State): "billing" | "technical" | "sales" {
-      return state.route as "billing" | "technical" | "sales";
-    }
-
-    async function handleBilling(state: typeof SupportState.State) {
-      const result = await billingAgent.invoke({
-        messages: [{ role: "user", content: state.question }]
-      });
-      return { answer: result.messages.at(-1)?.content };
-    }
-
-    async function handleTechnical(state: typeof SupportState.State) {
-      const result = await technicalAgent.invoke({
-        messages: [{ role: "user", content: state.question }]
-      });
-      return { answer: result.messages.at(-1)?.content };
-    }
-
-    async function handleSales(state: typeof SupportState.State) {
-      const result = await salesAgent.invoke({
-        messages: [{ role: "user", content: state.question }]
-      });
-      return { answer: result.messages.at(-1)?.content };
-    }
-
-    const workflow = new StateGraph(SupportState)
-      .addNode("classify", classifyRequest)
-      .addNode("billing", handleBilling)
-      .addNode("technical", handleTechnical)
-      .addNode("sales", handleSales)
-      .addEdge(START, "classify")
-      .addConditionalEdges("classify", routeToAgent)
-      .addEdge("billing", END)
-      .addEdge("technical", END)
-      .addEdge("sales", END)
-      .compile();
-
-    const result = await workflow.invoke({ question: "I was charged twice for my subscription last month" });
-    console.log(result.answer);
-    ```
-    :::
-  </Tab>
-</Tabs>
-
-
-## Skills
-
-In the **skills** architecture, specialized capabilities are packaged as invokable "skills" that augment an agent's behavior. Skills are primarily prompt-driven specializations that an agent can invoke on-demand.
-
-```mermaid
-graph LR
-    A[User] --> B[Main Agent]
-    B --> C[Python skill]
-    B --> D[SQL skill]
-    B --> E[Docs skill]
-    C --> B
-    D --> B
-    E --> B
-    B --> A
-```
-
-**Key characteristics:**
-
-* **Prompt-driven specialization**: Skills are primarily defined by specialized prompts
-* **Progressive disclosure**: Skills become available based on context or user needs
-* **Team distribution**: Different teams can develop and maintain skills independently
-* **Lightweight composition**: Skills are simpler than full sub-agents
-
-Use the skills pattern when you want a **single agent with many possible specializations**, you **don't need to enforce specific constraints** between skills, or different **teams need to develop capabilities independently**. Common examples include coding assistants (skills for different languages or tasks), knowledge bases (skills for different domains), and creative assistants (skills for different formats).
-
-<Card
-    title="Tutorial: Build an agent with on-demand skill loading"
-    icon="wand-magic-sparkles"
-    href="/oss/langchain/progressive-disclosure-skills"
-    arrow cta="Learn more"
->
-    Learn how to implement skills with progressive disclosure, where the agent loads specialized prompts and schemas on-demand rather than upfront.
-</Card>
+    </Accordion>
