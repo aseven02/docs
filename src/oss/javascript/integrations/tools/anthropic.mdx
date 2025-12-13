@@ -9,17 +9,13 @@ The `@langchain/anthropic` package provides LangChain-compatible wrappers for An
 The memory tool (`memory_20250818`) enables Claude to store and retrieve information across conversations through a memory file directory. Claude can create, read, update, and delete files that persist between sessions, allowing it to build knowledge over time without keeping everything in the context window.
 
 ```typescript
-import {
-  ChatAnthropic,
-  tools,
-  type Memory20250818Command,
-} from "@langchain/anthropic";
+import { ChatAnthropic, tools } from "@langchain/anthropic";
 
 // Create a simple in-memory file store (or use your own persistence layer)
 const files = new Map<string, string>();
 
 const memory = tools.memory_20250818({
-  execute: async (command: Memory20250818Command) => {
+  execute: async (command) => {
     switch (command.command) {
       case "view":
         if (!command.path || command.path === "/") {
@@ -246,19 +242,15 @@ Available commands:
 - `insert` - Insert text at a specific line number
 
 ```typescript
-import {
-  ChatAnthropic,
-  tools,
-  type TextEditor20250728Command,
-} from "@langchain/anthropic";
-import fs from "fs";
+import fs from "node:fs";
+import { ChatAnthropic, tools } from "@langchain/anthropic";
 
 const llm = new ChatAnthropic({
   model: "claude-sonnet-4-5-20250929",
 });
 
 const textEditor = tools.textEditor_20250728({
-  execute: async (args: TextEditor20250728Command) => {
+  async execute(args) {
     switch (args.command) {
       case "view":
         const content = fs.readFileSync(args.path, "utf-8");
@@ -324,11 +316,7 @@ Available actions:
 - `zoom` - View specific screen regions at full resolution (Claude Opus 4.5 only)
 
 ```typescript
-import {
-  ChatAnthropic,
-  tools,
-  type Computer20250124Action,
-} from "@langchain/anthropic";
+import { ChatAnthropic, tools } from "@langchain/anthropic";
 
 const llm = new ChatAnthropic({
   model: "claude-sonnet-4-5-20250929",
@@ -340,7 +328,7 @@ const computer = tools.computer_20250124({
   displayHeightPx: 768,
   // Optional: X11 display number
   displayNumber: 1,
-  execute: async (action: Computer20250124Action) => {
+  execute: async (action) => {
     switch (action.action) {
       case "screenshot":
       // Capture and return base64-encoded screenshot
@@ -450,11 +438,7 @@ Available commands:
 - Restart the session: `{ restart: true }`
 
 ```typescript
-import {
-  ChatAnthropic,
-  tools,
-  type Bash20250124Command,
-} from "@langchain/anthropic";
+import { ChatAnthropic, tools } from "@langchain/anthropic";
 import { execSync } from "child_process";
 
 const llm = new ChatAnthropic({
@@ -462,13 +446,13 @@ const llm = new ChatAnthropic({
 });
 
 const bash = tools.bash_20250124({
-  execute: async (args: Bash20250124Command) => {
+  execute: async (args) => {
     if (args.restart) {
       // Reset session state
       return "Bash session restarted";
     }
     try {
-      const output = execSync(args.command!, {
+      const output = execSync(args.command, {
         encoding: "utf-8",
         timeout: 30000,
       });
