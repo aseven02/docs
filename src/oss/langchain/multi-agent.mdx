@@ -34,12 +34,10 @@ Here are the main patterns for building multi-agent systems, each suited to diff
 | [**Custom workflow**](#custom-workflow) | Build bespoke logic with LangGraph, mixing deterministic and agentic steps. Reuse or customize agents as needed. |
 
 <Tip>
-    You can mix architectures! For example, a **supervisor** can manage **workflow** sub-graphs, or a **state machine** can invoke **skills** at certain stages.
+    You can mix patterns! For example, a **supervisor** can manage **workflow** sub-graphs or use the **router** pattern as a tool (querying multiple knowledge bases in parallel, then synthesizing results). A **state machine** can invoke **skills** at specific stages (loading specialized context only when reaching certain steps). **Spawning subagents** can work within a **custom workflow** to parallelize independent tasks while maintaining deterministic overall structure.
 </Tip>
 
-### How patterns work
-
-These patterns share common mechanisms for coordinating multi-agent behavior. Most rely on **tool calling** as the primary coordination mechanism—tools can invoke sub-agents ([supervisor](#supervisor), [spawning subagents](#spawning-subagents)), update state to trigger routing or behavior changes ([state machine](#state-machine)), load context on-demand ([skills](#skills)), or even invoke entire multi-agent systems (like wrapping a [router](#router) as a tool).
+**Common mechanisms:** These patterns share common mechanisms for coordinating multi-agent behavior. Most rely on **tool calling** as the primary coordination mechanism—tools can invoke sub-agents ([supervisor](#supervisor), [spawning subagents](#spawning-subagents)), update state to trigger routing or behavior changes ([state machine](#state-machine)), load context on-demand ([skills](#skills)), or even invoke entire multi-agent systems (like wrapping a [router](#router) as a tool).
 
 Tools drive dynamic behavior: updating state to route between agents, loading context, changing configuration, or spawning sub-agents. Patterns can also use middleware to modify system prompts or implement deterministic routing ([custom workflows](#custom-workflow)).
 
@@ -130,8 +128,6 @@ const supervisor = createAgent({ model, tools: [callSubagent] });  // [!code hig
 :::
 
 The supervisor invokes the sub-agent tool when it decides the task matches the sub-agent's description, receives the result, and continues orchestration.
-
-### Where to customize
 
 There are several points where you can control how context is passed between the main agent and its subagents:
 
@@ -734,6 +730,10 @@ const agent = createAgent({
 ```
 :::
 
+<Tip>
+**Dynamic tool registration**: When writing custom implementations, you can combine progressive disclosure with state management to register new tools as skills load. For example, loading a "database_admin" skill could both add specialized context and register database-specific tools (backup, restore, migrate). This uses the same tool-and-state mechanisms described in [Common mechanisms across patterns](#common-mechanisms-across-patterns)—tools updating state to dynamically change agent capabilities.
+</Tip>
+
 <Card
     title="Tutorial: Build an agent with on-demand skill loading"
     icon="wand-magic-sparkles"
@@ -778,7 +778,7 @@ Use the router pattern when you have distinct knowledge domains that need to be 
 
 <Accordion title="Example: Documentation search router">
 
-A documentation search router that decomposes queries and consults multiple domain experts in parallel. The router determines which knowledge bases to query (code docs, MCP docs, company Notion), runs agents concurrently, and synthesizes their results.
+Your organization's documentation lives in multiple places: code repositories, MCP protocol specifications, and internal Notion pages. When users ask questions like "How do I authenticate API requests?", the answer often requires information from all three sources. This example builds a router that decomposes queries, identifies which knowledge bases to consult, queries them in parallel using specialized agents, and synthesizes the results into a comprehensive answer.
 
 :::python
 ```python
