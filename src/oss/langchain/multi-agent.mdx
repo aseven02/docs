@@ -22,7 +22,7 @@ The quality of your system depends on context engineering. The goal is to ensure
 
 ## Patterns
 
-There are six main patterns for building multi-agent systems, each suited to different use cases:
+Here are the main patterns for building multi-agent systems, each suited to different use cases:
 
 | Pattern | How it works |
 |--------------|--------------|
@@ -39,7 +39,7 @@ There are six main patterns for building multi-agent systems, each suited to dif
 
 ### How patterns work
 
-These patterns share common coordination mechanisms. **Tool calling** is central—tools invoke sub-agents ([supervisor](#supervisor), [spawning subagents](#spawning-subagents)), update state to trigger routing ([state machine](#state-machine)), load context on-demand ([skills](#skills)), or invoke multi-agent systems (wrapping a [router](#router) as a tool).
+These patterns share common mechanisms for coordinating multi-agent behavior. Most rely on **tool calling** as the primary coordination mechanism—tools can invoke sub-agents ([supervisor](#supervisor), [spawning subagents](#spawning-subagents)), update state to trigger routing or behavior changes ([state machine](#state-machine)), load context on-demand ([skills](#skills)), or even invoke entire multi-agent systems (like wrapping a [router](#router) as a tool).
 
 Tools drive dynamic behavior: updating state to route between agents, loading context, changing configuration, or spawning sub-agents. Patterns can also use middleware to modify system prompts or implement deterministic routing ([custom workflows](#custom-workflow)).
 
