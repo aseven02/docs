@@ -470,12 +470,12 @@ stateDiagram-v2
 Use the state machine pattern when you need to enforce sequential constraints (unlock capabilities only after preconditions are met), the agent needs to converse directly with the user across different states, or you're building multi-stage conversational flows. This pattern is particularly valuable for customer support scenarios where you need to collect information in a specific sequence — for example, collecting a warranty ID before processing a refund.
 
 <Card
-    title="Tutorial: Build a customer support state machine"
+    title="Tutorial: Build a customer support agent using a state machine"
     icon="people-arrows"
     href="/oss/langchain/customer-support-state-machine"
     arrow cta="Learn more"
 >
-    Learn how to build a customer support workflow using the state machine pattern, where a single agent transitions between different configurations.
+    Learn how to build a customer support agent using the state machine pattern, where a single agent transitions between different configurations.
 </Card>
 
 At the core, the state machine pattern relies on [persistent state](/oss/langchain/short-term-memory) that survives across conversation turns:
