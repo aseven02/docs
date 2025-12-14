@@ -1,0 +1,533 @@
+---
+title: Trace Claude Code
+sidebarTitle: Claude Code
+---
+
+This guide shows you how to automatically send conversations from the [Claude Code CLI](https://code.claude.com/docs/en/overview) to LangSmith.
+
+Once configured, you can opt-in to sending traces from Claude Code projects to LangSmith. Traces will include user messages, tool calls and assistant responses.
+
+<div style={{ textAlign: 'center' }}>
+<img
+    className="block dark:hidden"
+    src="/langsmith/images/claude-code-trace.png"
+    alt="LangSmith UI showing trace from Claude Code."
+/>
+
+<img
+    className="hidden dark:block"
+    src="/langsmith/images/claude-code-trace-dark.png"
+    alt="LangSmith UI showing trace from Claude Code."
+/>
+</div>
+
+
+## How it works
+
+1. A global "Stop" [hook](https://code.claude.com/docs/en/hooks-guide#get-started-with-claude-code-hooks) is configured to run each time Claude Code responds.
+2. The hook reads Claude Code’s generated conversation transcripts.
+3. Messages in the transcript are converted into LangSmith runs and sent to your LangSmith project.
+
+<Note> Tracing is opt-in and is enabled per Claude Code project using environment variables. </Note>
+
+## Prerequisites
+
+Before setting up tracing, ensure you have:
+
+- **Claude Code CLI** installed.
+- **LangSmith API key** ([get it here](https://smith.langchain.com/settings/apikeys)).
+- **Python 3.8 or higher** available in your system PATH or project virtual environment.
+
+<Info>
+This guide currently supports macOS and Linux only.
+</Info>
+
+### Python and LangSmith installation
+
+The hook script requires the `langsmith` package to be installed. Installation depends on your project type:
+
+**For Python projects:**
+Install `langsmith` in your project's virtual environment:
+  ```bash
+  pip install langsmith
+  ```
+The virtual environment will be automatically detected and used if it exists and is activated.
+
+**For non-Python projects:**
+Install `langsmith` in your system Python:
+  ```bash
+  pip install langsmith
+  ```
+The system Python will be used if no virtual environment is found.
+
+## 1. Create `run_stop_hook.sh` and `stop_hook.py` files
+- `run_stop_hook.sh` is a wrapper script that runs the `stop_hook.py` file.
+- `stop_hook.py` is the actual hook that will be run when the stop hook is triggered.
+
+
+<Accordion title="Create `run_stop_hook.sh` file">
+
+Create `~/.claude/hooks/run_stop_hook.sh`:
+```bash
+#!/bin/bash
+# Wrapper script to run stop_hook.py with the right Python interpreter
+
+# Try to find project venv python, fall back to system python3
+if [ -f ".venv/bin/python" ]; then
+    PYTHON=".venv/bin/python"
+elif [ -f "venv/bin/python" ]; then
+    PYTHON="venv/bin/python"
+else
+    PYTHON="python3"
+fi
+
+# Run the hook
+$PYTHON ~/.claude/hooks/stop_hook.py
+```
+
+Make it executable:
+
+```bash
+chmod +x ~/.claude/hooks/run_stop_hook.sh
+```
+
+</Accordion>
+
+
+<Accordion title="Create `stop_hook.py` file">
+
+Create `~/.claude/hooks/stop_hook.py`:
+
+<Accordion title="`stop_hook.py` file">
+```python
+#!/usr/bin/env python3
+"""
+Claude Code Stop Hook - LangSmith Tracing Integration
+Sends Claude Code traces to LangSmith after each response.
+"""
+
+import json
+import sys
+import os
+import logging
+from pathlib import Path
+from datetime import datetime
+
+try:
+    from langsmith.run_trees import RunTree
+except ImportError as e:
+    print(f"Missing langsmith: {e}", file=sys.stderr)
+    sys.exit(0)
+
+# Exit early if tracing disabled
+if os.getenv("TRACE_TO_LANGSMITH", "false").lower() != "true":
+    sys.exit(0)
+
+# Map env vars for LangSmith SDK
+if os.getenv("CC_LANGSMITH_API_KEY"):
+    os.environ["LANGSMITH_API_KEY"] = os.getenv("CC_LANGSMITH_API_KEY")
+if os.getenv("CC_LANGSMITH_PROJECT"):
+    os.environ["LANGSMITH_PROJECT"] = os.getenv("CC_LANGSMITH_PROJECT")
+
+# Config
+STATE_FILE = Path.home() / ".claude/state/langsmith_state.json"
+LOG_FILE = Path.home() / ".claude/state/hook.log"
+PROJECT = os.getenv("CC_LANGSMITH_PROJECT", "claude-code")
+DEBUG = os.getenv("CC_LANGSMITH_DEBUG", "false").lower() == "true"
+
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.DEBUG if DEBUG else logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s'
+)
+
+
+def load_state():
+    """Load state from file."""
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not STATE_FILE.exists():
+        return {}
+    try:
+        with open(STATE_FILE, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        logging.error(f"Failed to load state: {e}")
+        return {}
+
+
+def save_state(state):
+    """Save state to file."""
+    try:
+        with open(STATE_FILE, 'w') as f:
+            json.dump(state, f, indent=2)
+    except Exception as e:
+        logging.error(f"Failed to save state: {e}")
+
+
+def parse_messages(transcript_path, last_line):
+    """Parse new messages from transcript."""
+    messages = []
+    try:
+        with open(transcript_path, 'r') as f:
+            for i, line in enumerate(f):
+                if i <= last_line:
+                    continue
+                line = line.strip()
+                if line:
+                    try:
+                        messages.append((i, json.loads(line)))
+                    except json.JSONDecodeError:
+                        pass
+    except Exception as e:
+        logging.error(f"Failed to read transcript: {e}")
+    return messages
+
+
+def get_content(msg):
+    """Get content from message."""
+    return msg.get("message", msg).get("content", [])
+
+
+def is_tool_result(msg):
+    """Check if message is a tool result."""
+    content = get_content(msg)
+    return isinstance(content, list) and any(
+        isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+    )
+
+
+def merge_contents(c1, c2):
+    """Merge two content arrays."""
+    if isinstance(c1, str):
+        c1 = [{"type": "text", "text": c1}]
+    if isinstance(c2, str):
+        c2 = [{"type": "text", "text": c2}]
+    return c1 + c2
+
+
+def group_turns(messages):
+    """Group messages into turns."""
+    turns = []
+    current = None
+
+    for _, msg in messages:
+        msg_data = msg.get("message", msg)
+        role = msg_data.get("role", "")
+
+        if role == "user":
+            if is_tool_result(msg):
+                if current:
+                    current["tool_results"].append(msg)
+            else:
+                if current and current.get("assistant"):
+                    turns.append(current)
+                current = {"user": msg, "assistant": None, "tool_results": []}
+        elif role == "assistant" and current:
+            if current.get("assistant"):
+                # Merge streaming chunks
+                msg_data = msg.get("message", msg)
+                current_data = current["assistant"].get("message", current["assistant"])
+                merged = merge_contents(
+                    current_data.get("content", []),
+                    msg_data.get("content", [])
+                )
+                if "message" in current["assistant"]:
+                    current["assistant"]["message"]["content"] = merged
+                else:
+                    current["assistant"]["content"] = merged
+            else:
+                current["assistant"] = msg
+
+    if current and current.get("assistant"):
+        turns.append(current)
+
+    return turns
+
+
+def format_content(msg):
+    """Format message content for LangSmith."""
+    content = get_content(msg)
+
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+
+    if not isinstance(content, list):
+        return [{"type": "text", "text": str(content)}]
+
+    formatted = []
+    for block in content:
+        if isinstance(block, dict):
+            if block.get("type") == "text":
+                formatted.append({"type": "text", "text": block.get("text", "")})
+            elif block.get("type") == "tool_use":
+                formatted.append({
+                    "type": "tool_call",
+                    "name": block.get("name"),
+                    "args": block.get("input", {}),
+                    "id": block.get("id")
+                })
+        elif isinstance(block, str):
+            formatted.append({"type": "text", "text": block})
+
+    return formatted or [{"type": "text", "text": ""}]
+
+
+def get_tool_uses(msg):
+    """Extract tool_use blocks."""
+    content = get_content(msg)
+    if not isinstance(content, list):
+        return []
+    return [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
+
+
+def find_result(tool_id, tool_results):
+    """Find result for tool_id."""
+    for msg in tool_results:
+        content = get_content(msg)
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_result":
+                if block.get("tool_use_id") == tool_id:
+                    result = block.get("content", "")
+                    if isinstance(result, list):
+                        parts = [r.get("text", "") for r in result
+                                if isinstance(r, dict) and r.get("type") == "text"]
+                        return " ".join(parts)
+                    return str(result)
+    return None
+
+
+def create_trace(session_id, turn_num, turn):
+    """Create LangSmith trace for turn."""
+    user_content = format_content(turn["user"])
+
+    # Top-level turn run
+    turn_run = RunTree(
+        name="Claude Code",
+        run_type="chain",
+        inputs={"messages": [{"role": "user", "content": user_content}]},
+        project_name=PROJECT,
+        tags=["claude-code", f"turn-{turn_num}"],
+        extra={"metadata": {"thread_id": session_id}}
+    )
+    turn_run.post()
+
+    # Assistant run
+    tool_uses = get_tool_uses(turn["assistant"])
+    assistant_content = format_content(turn["assistant"])
+
+    assistant_run = turn_run.create_child(
+        name=f"Claude ({'with tools' if tool_uses else 'text'})",
+        run_type="llm",
+        inputs=turn_run.inputs,
+        tags=["claude-sonnet-4-5"],
+        extra={"metadata": {"ls_provider": "anthropic", "ls_model_name": "claude-sonnet-4-5"}}
+    )
+    assistant_run.parent_run_id = turn_run.id
+    assistant_run.post()
+
+    outputs = [{"role": "assistant", "content": assistant_content}]
+
+    # Tool runs
+    for tool in tool_uses:
+        tool_run = assistant_run.create_child(
+            name=tool.get("name", "tool"),
+            run_type="tool",
+            inputs={"input": tool.get("input", {})},
+            tags=["tool"]
+        )
+        tool_run.parent_run_id = assistant_run.id
+        tool_run.post()
+
+        result = find_result(tool.get("id", ""), turn["tool_results"])
+        tool_run.end(outputs={"output": result or "No result"})
+        tool_run.patch()
+
+        outputs.append({
+            "role": "tool",
+            "tool_call_id": tool.get("id", ""),
+            "content": [{"type": "text", "text": result or "No result"}]
+        })
+
+    assistant_run.end(outputs={"messages": outputs})
+    assistant_run.patch()
+
+    turn_run.end(outputs={"messages": outputs})
+    turn_run.patch()
+
+    logging.info(f"Turn {turn_num}: {turn_run.id}")
+
+
+def main():
+    try:
+        hook_input = json.loads(sys.stdin.read())
+
+        if hook_input.get("stop_hook_active"):
+            sys.exit(0)
+
+        session_id = hook_input.get("session_id")
+        transcript_path = Path(hook_input.get("transcript_path", "")).expanduser()
+
+        if not session_id or not transcript_path.exists():
+            sys.exit(0)
+
+        # Load state
+        state = load_state()
+        session_state = state.get(session_id, {"last_line": -1, "turn_count": 0})
+
+        # Parse new messages
+        messages = parse_messages(transcript_path, session_state["last_line"])
+        if not messages:
+            sys.exit(0)
+
+        # Group into turns
+        turns = group_turns(messages)
+        if not turns:
+            state[session_id] = {
+                "last_line": messages[-1][0],
+                "turn_count": session_state["turn_count"],
+                "updated": datetime.utcnow().isoformat()
+            }
+            save_state(state)
+            sys.exit(0)
+
+        # Create traces
+        turn_start = session_state["turn_count"] + 1
+        for i, turn in enumerate(turns):
+            try:
+                create_trace(session_id, turn_start + i, turn)
+            except Exception as e:
+                logging.error(f"Failed turn {turn_start + i}: {e}", exc_info=True)
+
+        # Update state
+        state[session_id] = {
+            "last_line": messages[-1][0],
+            "turn_count": turn_start + len(turns) - 1,
+            "updated": datetime.utcnow().isoformat()
+        }
+        save_state(state)
+
+        logging.info(f"Processed {len(turns)} turns")
+
+    except Exception as e:
+        logging.error(f"Hook error: {e}", exc_info=True)
+
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+</Accordion>
+
+
+Make it executable:
+
+```bash
+chmod +x ~/.claude/hooks/stop_hook.py
+```
+
+</Accordion>
+
+## 2. Global Hook Configuration
+
+Set up a global hook in `~/.claude/settings.json`. This global setting enables you to easily trace any Claude Code sessions.
+
+In `~/.claude/settings.json`, add the `Stop` hook.
+
+```json
+"hooks": {
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash ~/.claude/hooks/run_stop_hook.sh",
+          "timeout": 30
+        }
+      ]
+    }
+  ]
+}
+```
+
+## 3. Enable Tracing
+
+For each Claude Code project where you want tracing enabled, create or edit `.claude/settings.local.json` to include the following environment variables:
+
+- `TRACE_TO_LANGSMITH: "true"` - Enables tracing for this project. Remove or set to `false` to disable tracing.
+- `CC_LANGSMITH_API_KEY` - Your LangSmith API key
+- `CC_LANGSMITH_PROJECT` - The LangSmith project name where traces are sent
+
+```json
+{
+  "env": {
+    "TRACE_TO_LANGSMITH": "true",
+    "CC_LANGSMITH_API_KEY": "lsv2_pt_...",
+    "CC_LANGSMITH_PROJECT": "project-where-traces-are-sent"
+  }
+}
+```
+
+## 4. Verify Setup
+
+Start a Claude Code session in your configured project. Traces will appear in LangSmith after Claude Code responds.
+
+### What you’ll see in LangSmith
+
+- Each message to Claude Code appears as a trace
+- All turns from the same Claude Code session are grouped using a shared `thread_id` and can be viewed in the Threads tab of a project.
+
+
+## Troubleshooting
+
+### No traces appearing in LangSmith
+
+1. **Check the hook is running**:
+   ```bash
+   tail -f ~/.claude/state/hook.log
+   ```
+   You should see log entries after each Claude response.
+
+2. **Verify environment variables**:
+   - Check that `TRACE_TO_LANGSMITH="true"` in your project's `.claude/settings.local.json`
+   - Verify your API key is correct
+   - Ensure the project name exists in LangSmith
+
+3. **Check Python environment**:
+   ```bash
+   # Make sure langsmith is installed in your venv
+   .venv/bin/python -c "import langsmith; print(langsmith.__version__)"
+   ```
+
+### Permission errors
+
+Make sure both hook scripts are executable:
+
+```bash
+chmod +x ~/.claude/hooks/run_stop_hook.sh
+chmod +x ~/.claude/hooks/stop_hook.py
+```
+
+### Import errors
+
+If you're tracing a Python project, make sure `langsmith` is installed in your project's virtual environment:
+
+```bash
+pip install langsmith
+```
+
+If you're tracing a non-Python project, your system Python needs langsmith installed.
+
+The wrapper script (`run_stop_hook.sh`) will automatically use your project's virtual environment if it exists.
+
+---
+
+<Callout icon="pen-to-square" iconType="regular">
+    [Edit the source of this page on GitHub.](https://github.com/langchain-ai/docs/edit/main/src/langsmith/trace-claude-code.mdx)
+</Callout>
+<Tip icon="terminal" iconType="regular">
+    [Connect these docs programmatically](/use-these-docs) to Claude, VSCode, and more via MCP for real-time answers.
+</Tip>
