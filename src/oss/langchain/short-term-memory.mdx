@@ -1137,7 +1137,6 @@ const validateResponse = createMiddleware({
       return {
         messages: [
           new RemoveMessage({ id: REMOVE_ALL_MESSAGES }),
-          ...state.messages,
         ],
       };
     }
